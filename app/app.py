@@ -5,6 +5,8 @@ import traceback
 import joblib
 import pandas as pd
 from flask import Flask, request, jsonify, Response
+from pydantic import ValidationError
+from app.validation import PredictionRequest, FEATURE_ORDER
 from prometheus_client import Counter, Histogram, generate_latest, CollectorRegistry
 
 app = Flask(__name__)
@@ -54,9 +56,28 @@ def predict():
         PREDICTION_COUNT.inc()
         payload = request.get_json(force=True)
 
-        if not isinstance(payload, dict):
-            raise ValueError('Payload must be a JSON object with feature keys.')
-        input_df = pd.DataFrame([payload])
+        if isinstance(payload, list):
+            if len(payload) != getattr(model, 'n_features_in_', None):
+                return jsonify({
+                    'error': 'invalid input',
+                    'details': f'expected {getattr(model, "n_features_in_", "?")} features'
+                }), 400
+            input_df = pd.DataFrame([payload], columns=FEATURE_ORDER)
+
+        elif isinstance(payload, dict):
+            try:
+                validated = PredictionRequest.parse_obj(payload)
+            except ValidationError as e:
+                return jsonify({'error': 'invalid input', 'details': e.errors()}), 400
+
+            feature_dict = validated.as_feature_dict(by_alias=True)
+            try:
+                input_df = pd.DataFrame([feature_dict])[FEATURE_ORDER]
+            except KeyError as e:
+                return jsonify({'error': 'invalid input', 'details': f'missing feature: {e}'}), 400
+
+        else:
+            return jsonify({'error': 'invalid payload format (expected object or array)'}), 400
 
         pred_start = time.time()
         prediction = model.predict(input_df)
