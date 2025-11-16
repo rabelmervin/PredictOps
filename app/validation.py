@@ -1,39 +1,43 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import List
 
 FEATURE_ORDER: List[str] = [
     "Revenue",
     "Gross Profit",
-    "EBITDA(Earnings Before Interest, Taxes, Depreciation, and Amortization.)",
+    "EBITDA",
     "Share Holder Equity",
-    "Cash Flow from Operating",
-    "Net Profit Margin",
-    "Return on Tangible Equity",
-    "Number of Employees",
-    "Profit_margin",
-    "Revenue_per_employee",
-    "Employee_productivity",
+    "Operating Expenses",
+    "Net Income",
+    "Total Assets",
+    "Total Liabilities",
 ]
 
 
 class PredictionRequest(BaseModel):
-    # Python-safe field names, aliases map to original column names
-    revenue: float = Field(..., alias="Revenue")
-    gross_profit: float = Field(..., alias="Gross Profit")
-    ebitda: float = Field(..., alias="EBITDA")
-    share_holder_equity: float = Field(..., alias="Share Holder Equity")
-    cash_flow_from_operating: float = Field(..., alias="Cash Flow from Operating")
-    net_profit_margin: float = Field(..., alias="Net Profit Margin")
-    return_on_tangible_equity: float = Field(..., alias="Return on Tangible Equity")
-    number_of_employees: float = Field(..., alias="Number of Employees")
-    profit_margin: float = Field(..., alias="Profit_margin")
-    revenue_per_employee: float = Field(..., alias="Revenue_per_employee")
-    employee_productivity: float = Field(..., alias="Employee_productivity")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    class Config:
-        extra = "forbid"
-        validate_by_name = True
-
+    # Financial metrics - the model now expects 8 features
+    revenue: float = Field(..., alias="Revenue", description="Total revenue")
+    gross_profit: float = Field(..., alias="Gross Profit", description="Gross profit")
+    ebitda: float = Field(..., alias="EBITDA", description="EBITDA")
+    share_holder_equity: float = Field(..., alias="Share Holder Equity", description="Shareholder equity")
+    operating_expenses: float = Field(..., alias="Operating Expenses", description="Operating expenses")
+    net_income: float = Field(..., alias="Net Income", description="Net income")
+    total_assets: float = Field(..., alias="Total Assets", description="Total assets")
+    total_liabilities: float = Field(..., alias="Total Liabilities", description="Total liabilities")
+    
     def as_feature_dict(self, by_alias: bool = True) -> dict:
         """Return a dict keyed by alias (original column names) or field names."""
-        return self.dict(by_alias=by_alias)
+        if by_alias:
+            return {
+                "Revenue": self.revenue,
+                "Gross Profit": self.gross_profit,
+                "EBITDA": self.ebitda,
+                "Share Holder Equity": self.share_holder_equity,
+                "Operating Expenses": self.operating_expenses,
+                "Net Income": self.net_income,
+                "Total Assets": self.total_assets,
+                "Total Liabilities": self.total_liabilities,
+            }
+        else:
+            return self.model_dump()

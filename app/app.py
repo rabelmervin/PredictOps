@@ -7,10 +7,11 @@ import pandas as pd
 from flask import Flask, request, jsonify, Response
 from pydantic import ValidationError
 from app.validation import PredictionRequest, FEATURE_ORDER
-from prometheus_client import Counter, Histogram, generate_latest, CollectorRegistry
+from prometheus_client import Counter, Histogram, generate_latest, REGISTRY
+from prometheus_flask_exporter import PrometheusMetrics
 
 app = Flask(__name__)
-registry = CollectorRegistry()
+metrics = PrometheusMetrics(app)
 
 MODEL_PATH = os.path.join(os.path.dirname(__file__), '..', 'models', 'random_forest_model.joblib')
 MODEL_PATH = os.path.abspath(MODEL_PATH)
@@ -21,35 +22,15 @@ except Exception:
     app.logger.exception('Failed to load model at %s', MODEL_PATH)
     model = None
 
-REQUEST_COUNT = Counter(
-    'http_requests_total',
-    'Total number of HTTP requests',
-    ['method', 'endpoint', 'status_code'],
-    registry=registry,
-)
-REQUEST_LATENCY = Histogram(
-    'http_request_duration_seconds',
-    'HTTP request latency in seconds',
-    ['method', 'endpoint'],
-    registry=registry,
-)
-PREDICTION_COUNT = Counter('prediction_requests_total', 'Total number of prediction requests', registry=registry)
-PREDICTION_LATENCY = Histogram('prediction_duration_seconds', 'Prediction latency in seconds', registry=registry)
-PREDICTION_ERRORS = Counter('prediction_errors_total', 'Total number of prediction errors', registry=registry)
+PREDICTION_COUNT = Counter('prediction_requests_total', 'Total number of prediction requests')
+PREDICTION_LATENCY = Histogram('prediction_duration_seconds', 'Prediction latency in seconds')
+PREDICTION_ERRORS = Counter('prediction_errors_total', 'Total number of prediction errors')
 
 
 @app.route('/predict', methods=['POST'])
 def predict():
-    method = request.method
-    endpoint = '/predict'
-    status_code = 500
-    request_start = time.time()
-
     if model is None:
         PREDICTION_ERRORS.inc()
-        status_code = 500
-        REQUEST_COUNT.labels(method=method, endpoint=endpoint, status_code=str(status_code)).inc()
-        REQUEST_LATENCY.labels(method=method, endpoint=endpoint).observe(time.time() - request_start)
         return jsonify({'error': 'Model not available'}), 500
 
     try:
@@ -66,7 +47,7 @@ def predict():
 
         elif isinstance(payload, dict):
             try:
-                validated = PredictionRequest.parse_obj(payload)
+                validated = PredictionRequest.model_validate(payload)
             except ValidationError as e:
                 return jsonify({'error': 'invalid input', 'details': e.errors()}), 400
 
@@ -84,24 +65,18 @@ def predict():
         pred_duration = time.time() - pred_start
         PREDICTION_LATENCY.observe(pred_duration)
 
-        status_code = 200
         return jsonify({'prediction': prediction.tolist()}), 200
 
     except Exception as exc:
         PREDICTION_ERRORS.inc()
         app.logger.error('Prediction error: %s', exc)
         app.logger.debug(traceback.format_exc())
-        status_code = 500
         return jsonify({'error': str(exc)}), 500
-
-    finally:
-        REQUEST_LATENCY.labels(method=method, endpoint=endpoint).observe(time.time() - request_start)
-        REQUEST_COUNT.labels(method=method, endpoint=endpoint, status_code=str(status_code)).inc()
 
 
 @app.route('/metrics')
 def metrics():
-    data = generate_latest(registry)
+    data = generate_latest(REGISTRY)
     return Response(data, mimetype='text/plain; version=0.0.4; charset=utf-8')
 
 
