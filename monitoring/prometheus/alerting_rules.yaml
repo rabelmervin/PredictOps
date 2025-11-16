@@ -1,0 +1,32 @@
+groups:
+  - name: predictops-alerts
+    rules:
+      # Alert for high error rate
+      - alert: HighErrorRate
+        expr: increase(http_requests_total{status_code="500"}[5m]) > 10
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High error rate detected"
+          description: "More than 10 errors in the last 5 minutes."
+
+      # Alert for high prediction latency
+      - alert: HighPredictionLatency
+        expr: histogram_quantile(0.95, rate(prediction_duration_seconds_bucket[5m])) > 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High prediction latency"
+          description: "95th percentile latency is above 1 second."
+
+      # Alert for service down
+      - alert: ServiceDown
+        expr: up{job="predictops"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service is down"
+          description: "The predictops service is not responding."
